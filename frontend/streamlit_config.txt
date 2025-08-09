@@ -1,0 +1,49 @@
+# .streamlit/config.toml
+# Streamlit configuration for AI Content Moderation frontend
+
+[global]
+# Development settings
+developmentMode = false
+logLevel = "info"
+
+[server]
+# Server settings
+port = 8501
+baseUrlPath = ""
+enableCORS = true
+enableXsrfProtection = true
+maxUploadSize = 200  # MB
+maxMessageSize = 200  # MB
+enableWebsocketCompression = true
+allowRunOnSave = true
+
+[browser]
+# Browser settings
+serverAddress = "0.0.0.0"
+gatherUsageStats = false
+showErrorDetails = true
+
+[theme]
+# Material Design 3 inspired theme
+primaryColor = "#6750A4"          # Primary color
+backgroundColor = "#FFFBFE"       # Background
+secondaryBackgroundColor = "#F3EDF7"  # Secondary background
+textColor = "#1C1B1F"            # Text color
+font = "sans serif"              # Font family
+
+[client]
+# Client settings
+caching = true
+displayEnabled = true
+showErrorDetails = true
+
+[runner]
+# Runner settings
+magicEnabled = true
+installTracer = true
+fixMatplotlib = true
+
+[logger]
+# Logging settings
+level = "info"
+messageFormat = "%(asctime)s %(message)s"

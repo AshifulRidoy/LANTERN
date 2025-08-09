@@ -1,0 +1,191 @@
+version: '3.8'
+
+services:
+  # FastAPI Backend
+  hate-speech-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.backend
+    container_name: hate-speech-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBERTA_MODEL_PATH=/app/models/deberta-multitask/best_model
+      - LLAMA_MODEL_PATH=/app/models/llama3-counter-speech
+      - HOST=0.0.0.0
+      - PORT=8000
+      - MAX_CONCURRENT_REQUESTS=10
+      - REQUEST_TIMEOUT=30
+      - WORKERS=1
+    volumes:
+      - ./models:/app/models:ro
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 8G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - hate-speech-network
+    restart: unless-stopped
+
+  # Streamlit Frontend
+  hate-speech-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: hate-speech-frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+      - API_BASE_URL=http://hate-speech-api:8000
+    volumes:
+      - ./frontend/data:/app/data
+      - ./frontend/logs:/app/logs
+    depends_on:
+      hate-speech-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - hate-speech-network
+    restart: unless-stopped
+
+  # Optional: Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: hate-speech-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - hate-speech-api
+      - hate-speech-frontend
+    networks:
+      - hate-speech-network
+    restart: unless-stopped
+    profiles:
+      - nginx  # Optional service, activate with --profile nginx
+
+  # Optional: Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: hate-speech-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - hate-speech-network
+    restart: unless-stopped
+    profiles:
+      - cache  # Optional service, activate with --profile cache
+
+  # Optional: Monitoring with Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: hate-speech-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - hate-speech-network
+    restart: unless-stopped
+    profiles:
+      - monitoring  # Optional service, activate with --profile monitoring
+
+  # Optional: Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: hate-speech-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - hate-speech-network
+    restart: unless-stopped
+    profiles:
+      - monitoring  # Optional service, activate with --profile monitoring
+
+networks:
+  hate-speech-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+# Usage examples:
+# Basic setup (API + Frontend):
+#   docker-compose up -d
+#
+# With Nginx reverse proxy:
+#   docker-compose --profile nginx up -d
+#
+# With Redis caching:
+#   docker-compose --profile cache up -d
+#
+# With monitoring (Prometheus + Grafana):
+#   docker-compose --profile monitoring up -d
+#
+# Full setup with all services:
+#   docker-compose --profile nginx --profile cache --profile monitoring up -d
+#
+# Scale frontend for load balancing:
+#   docker-compose up -d --scale hate-speech-frontend=3
+#
+# View logs:
+#   docker-compose logs -f hate-speech-frontend
+#   docker-compose logs -f hate-speech-api
+#
+# Rebuild and restart:
+#   docker-compose up -d --build
+#
+# Stop all services:
+#   docker-compose down
+#
+# Stop and remove volumes:
+#   docker-compose down -v
